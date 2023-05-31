@@ -1,5 +1,5 @@
 import _ from "lodash";
-import { CONSTANT } from "../untils/constant";
+import { CONSTANT } from "../utils/constant";
 export class SystemError extends Error {
   private code: string = CONSTANT.ERROR.SYSTEM.GENERAL_ERROR.code;
   private httpStatusCode: number =

@@ -8,7 +8,7 @@ import {
   Put,
   Query,
 } from "@nestjs/common";
-import { parseQuery } from "src/common/untils/untils";
+import { parseQuery } from "src/common/utils/utils";
 import { GetNotificationListFilterDto } from "./dto/GetNotificationListFilter.dto";
 import NotificationService from "./notification.service";
 import { ApiBearerAuth, ApiQuery, ApiTags } from "@nestjs/swagger";

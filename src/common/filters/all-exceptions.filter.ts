@@ -9,7 +9,7 @@ import { ExceptionFilter } from "@nestjs/common";
 import { QueryFailedError, TypeORMError } from "typeorm";
 import { v4 } from "uuid";
 import _ from "lodash";
-import { CONSTANT } from "../untils/constant";
+import { CONSTANT } from "../utils/constant";
 import { CONFIG } from "../configs/config";
 
 @Catch(HttpException, QueryFailedError, TypeORMError)

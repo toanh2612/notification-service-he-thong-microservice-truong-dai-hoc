@@ -3,9 +3,14 @@ import { Transport, MicroserviceOptions } from "@nestjs/microservices";
 import { AppModule } from "./app.module";
 import { CONFIG } from "./common/configs/config";
 import { initializeTransactionalContext } from "typeorm-transactional-cls-hooked";
-import { ValidationPipe } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 import { AllExceptionsFilter } from "./common/filters/all-exceptions.filter";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { WinstonModule } from "nest-winston";
+import { transports, format } from "winston";
+import "winston-daily-rotate-file";
+import RabbitMQService from "./modules/rabbitMQ/rabbitMQ.service";
+import { CONSTANT } from "./common/utils/constant";
 
 process.on("unhandledRejection", (error) => {
   console.log("unhandledRejection", error);
@@ -16,7 +21,38 @@ process.on("uncaughtException", (error) => {
 });
 
 async function bootstrap() {
-  const httpServer = await NestFactory.create(AppModule);
+  const httpServer = await NestFactory.create(AppModule, {
+    logger: WinstonModule.createLogger({
+      transports: [
+        new transports.DailyRotateFile({
+          filename: `logs/%DATE%-error.log`,
+          level: "error",
+          format: format.combine(format.timestamp(), format.json()),
+          datePattern: "YYYY-MM-DD",
+          zippedArchive: false,
+          maxFiles: "30d",
+        }),
+        new transports.DailyRotateFile({
+          filename: `logs/%DATE%-combined.log`,
+          format: format.combine(format.timestamp(), format.json()),
+          datePattern: "YYYY-MM-DD",
+          zippedArchive: false,
+          maxFiles: "30d",
+        }),
+        new transports.Console({
+          format: format.combine(
+            format.timestamp(),
+            format.printf((info) => {
+              return `${info.timestamp} ${info.level}: ${info.message}`;
+            }),
+            format.colorize({
+              all: true,
+            })
+          ),
+        }),
+      ],
+    }),
+  });
 
   httpServer.useGlobalPipes(new ValidationPipe({}));
 
@@ -31,18 +67,51 @@ async function bootstrap() {
   httpServer.enableCors();
 
   const config = new DocumentBuilder()
-    .setTitle("notification.edu-microservice.site API")
-    .setDescription("notification.edu-microservice.site API")
+    .setTitle(`${CONFIG["HOST"]} API`)
+    .setDescription(`${CONFIG["HOST"]} API`)
     .setVersion("1.0")
-    .addTag("notification.edu-microservice.site")
+    .addTag(`${CONFIG["HOST"]} API`)
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(httpServer, config);
   SwaggerModule.setup("/docs", httpServer, document);
 
+  await httpServer.init();
+  const rabbitMQService = httpServer.get(RabbitMQService);
+
   const microservice =
     await NestFactory.createMicroservice<MicroserviceOptions>(AppModule, {
       transport: Transport.REDIS,
+      logger: WinstonModule.createLogger({
+        transports: [
+          new transports.DailyRotateFile({
+            filename: `logs/%DATE%-error.log`,
+            level: "error",
+            format: format.combine(format.timestamp(), format.json()),
+            datePattern: "YYYY-MM-DD",
+            zippedArchive: false,
+            maxFiles: "30d",
+          }),
+          new transports.DailyRotateFile({
+            filename: `logs/%DATE%-combined.log`,
+            format: format.combine(format.timestamp(), format.json()),
+            datePattern: "YYYY-MM-DD",
+            zippedArchive: false,
+            maxFiles: "30d",
+          }),
+          new transports.Console({
+            format: format.combine(
+              format.timestamp(),
+              format.printf((info) => {
+                return `${info.timestamp} ${info.level}: ${info.message}`;
+              }),
+              format.colorize({
+                all: true,
+              })
+            ),
+          }),
+        ],
+      }),
       options: {
         password: CONFIG["REDIS_CLIENT_PASSWORD"],
         port: Number(CONFIG["REDIS_CLIENT_PORT"]),
@@ -54,11 +123,22 @@ async function bootstrap() {
     });
   await Promise.all([
     microservice.listen().then(() => {
-      console.log("Start microservice");
+      Logger.log("Start microservice");
     }),
-    httpServer.listen(Number(CONFIG["APP_PORT"]), "0.0.0.0", async () => {
-      console.log("Start HTTP server");
-    }),
+    httpServer.listen(
+      Number(CONFIG["APP_PORT"]),
+      CONFIG["APP_HOST"],
+      async () => {
+        Logger.log("Start HTTP server");
+      }
+    ),
+    rabbitMQService.receiver(CONSTANT.RABBITMQ.EXCHANGE_NAME, [
+      CONSTANT.EVENT.SCHEDULE.REGISTER_CLASSROOMS,
+      CONSTANT.EVENT.SCHEDULE.CREATE_ATTENDANCE_SUCCESSED,
+      CONSTANT.EVENT.SCHEDULE.UPDATE_ATTENDANCE_SUCCESSED,
+      CONSTANT.EVENT.SCHEDULE.UPDATE_CLASS_PERIOD_SUCCESSED,
+      CONSTANT.EVENT.SCHEDULE.UPDATE_CLASS_PERIOD_TIME_RANGE_SUCCESSED,
+    ]),
   ]);
 }
 
